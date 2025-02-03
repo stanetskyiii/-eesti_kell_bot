@@ -1,0 +1,7 @@
+aiogram
+apscheduler
+SQLAlchemy
+psycopg2-binary   # для PostgreSQL, если выберете PostgreSQL
+openpyxl          # для импорта данных из Excel
+google-cloud-texttospeech
+python-dotenv     # для работы с .env файлами (если понадобится)

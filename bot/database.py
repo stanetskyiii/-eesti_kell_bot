@@ -1,23 +1,40 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text
+# bot/database.py
+import os
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
-from config.settings import DATABASE_URL
+
+DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///estonian_bot.db')
 
 Base = declarative_base()
 
 class Word(Base):
     __tablename__ = 'words'
     id = Column(Integer, primary_key=True)
-    word_et = Column(String, nullable=False)
-    part_of_speech = Column(String, nullable=False)
-    translation = Column(String, nullable=False)
-    ai_generated_text = Column(Text)
-    last_sent = Column(DateTime)
+    word_et = Column(String, nullable=False)           # Эстонское слово
+    part_of_speech = Column(String, nullable=False)      # Часть речи
+    translation = Column(String, nullable=False)         # Перевод
+    ai_generated_text = Column(Text, nullable=True)      # Пример использования
     correct_answers = Column(Integer, default=0)
     incorrect_answers = Column(Integer, default=0)
 
-# Инициализация подключения к БД
+class UserSettings(Base):
+    __tablename__ = 'user_settings'
+    id = Column(Integer, primary_key=True)
+    chat_id = Column(String, nullable=False, unique=True)  # Идентификатор пользователя
+    words_per_hour = Column(Integer, default=5)             # Сколько слов отправлять за цикл
+    start_time = Column(String, default="09:00")            # Начало рассылки
+    end_time = Column(String, default="23:00")              # Окончание рассылки
+
+class UserWordStatus(Base):
+    __tablename__ = 'user_word_status'
+    id = Column(Integer, primary_key=True)
+    chat_id = Column(String, nullable=False)
+    word_id = Column(Integer, nullable=False)
+    sent_count = Column(Integer, default=0)
+    last_sent = Column(DateTime, nullable=True)
+
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
 

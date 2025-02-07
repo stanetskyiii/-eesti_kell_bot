@@ -1,17 +1,9 @@
+# config/settings.py
 import os
 
-# Телеграм токен
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN', 'your-telegram-bot-token')
+# Задайте ваш Telegram Token
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN', '8032455890:AAElHeT5g6m11o0OVpmNaReEHuhThPYQcXI')
 
-# Параметры БД
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://user:password@localhost:5432/estonian_bot')
-
-# Google Cloud TTS
-GOOGLE_APPLICATION_CREDENTIALS = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', 'tts-key.json')
-
-# Параметры работы планировщика
-START_HOUR = 9    # начало авторассылки
-END_HOUR = 23     # конец авторассылки (11 вечера)
-
-# Путь к кэшу озвучки
-TTS_CACHE_DIR = os.path.join(os.getcwd(), 'data', 'tts_cache')
+# Если понадобятся глобальные настройки рассылки (используются в планировщике по умолчанию)
+START_HOUR = 9
+END_HOUR = 23

@@ -1,23 +1,18 @@
+# bot/main.py
 import asyncio
 from aiogram import Bot, Dispatcher
 from config.settings import TELEGRAM_TOKEN
 from bot import handlers, scheduler
 from bot.database import init_db
+from bot.audio_handlers import register_audio_handlers
 
 async def main():
-    # Инициализация БД
     init_db()
-
     bot = Bot(token=TELEGRAM_TOKEN)
     dp = Dispatcher(bot)
-
-    # Регистрация обработчиков команд
     handlers.register_handlers(dp)
-
-    # Запуск планировщика задач (авторассылка, тесты)
+    register_audio_handlers(dp)
     scheduler.start_scheduler(dp)
-
-    # Запуск поллинга
     try:
         await dp.start_polling()
     finally:

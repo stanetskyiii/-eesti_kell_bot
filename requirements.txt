@@ -1,7 +1,6 @@
-aiogram
-apscheduler
+aiogram==2.25.1
 SQLAlchemy
-psycopg2-binary   # для PostgreSQL, если выберете PostgreSQL
-openpyxl          # для импорта данных из Excel
-google-cloud-texttospeech
-python-dotenv     # для работы с .env файлами (если понадобится)
+psycopg2-binary   # если планируете использовать PostgreSQL, для SQLite можно не ставить
+openpyxl
+python-dotenv     # если планируете работать с .env
+apscheduler

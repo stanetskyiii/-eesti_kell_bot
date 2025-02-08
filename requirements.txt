@@ -4,3 +4,4 @@ psycopg2-binary   # если планируете использовать Postg
 openpyxl
 python-dotenv     # если планируете работать с .env
 apscheduler
+requests

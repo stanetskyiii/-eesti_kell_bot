@@ -1,7 +1,7 @@
 # bot/database.py
 import os
 import logging
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
@@ -28,6 +28,7 @@ class Word(Base):
     ai_generated_text = Column(Text, nullable=True)      # Пример использования
     correct_answers = Column(Integer, default=0)
     incorrect_answers = Column(Integer, default=0)
+    repeat_more = Column(Boolean, default=False)         # Флаг для частого повторения
 
 class UserSettings(Base):
     __tablename__ = 'user_settings'
@@ -44,9 +45,6 @@ class UserWordStatus(Base):
     word_id = Column(Integer, nullable=False)
     sent_count = Column(Integer, default=0)
     last_sent = Column(DateTime, nullable=True)
-
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(bind=engine)
 
 def init_db():
     Base.metadata.create_all(engine)

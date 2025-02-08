@@ -109,7 +109,7 @@ async def random_test_handler(message: types.Message):
         # Тест с набором ответа: берем слово из уже отправленных пользователю
         user_words = session.query(UserWordStatus).filter_by(chat_id=chat_id).all()
         if not user_words:
-            test_type = random.choice([1, 2])  # Если нет, fallback на тип 1 или 2
+            test_type = random.choice([1, 2])  # fallback на тип 1 или 2
         else:
             chosen_status = random.choice(user_words)
             word_obj = session.query(Word).filter_by(id=chosen_status.word_id).first()
@@ -247,7 +247,7 @@ async def send_five_words(chat_id: str, bot: Bot):
     session = SessionLocal()
     sent_word_ids = [uw.word_id for uw in session.query(UserWordStatus).filter_by(chat_id=chat_id).all()]
     query = session.query(Word)
-    # Сначала подбираем слова, помеченные для частого повторения, если прошло более суток с последнего отправления
+    # Сначала подбираем слова, помеченные для частого повторения, если прошло более суток с последней отправки
     frequent_words = session.query(Word).filter(Word.repeat_more == True).all()
     selected_words = []
     for word in frequent_words:
@@ -330,10 +330,68 @@ async def inline_button_handler(callback_query: types.CallbackQuery):
     data = callback_query.data
     bot = callback_query.bot
     chat_id = str(callback_query.message.chat.id)
+
+    # Обработка кнопки "toggle_repeat"
+    if data.startswith("toggle_repeat:"):
+        try:
+            _, word_id = data.split(":", 1)
+        except ValueError:
+            await callback_query.answer("Некорректные данные!")
+            return
+        session = SessionLocal()
+        word_obj = session.query(Word).filter_by(id=int(word_id)).first()
+        if word_obj:
+            word_obj.repeat_more = not word_obj.repeat_more
+            session.commit()
+            status = "помечено" if word_obj.repeat_more else "убрано из повторяющихся"
+            await bot.send_message(chat_id, f"Слово {word_obj.word_et} теперь {status}.", parse_mode="HTML")
+        session.close()
+        await callback_query.answer()
+        return
+
+    # Обработка ответов тестов с кнопками (тип 1)
+    if data.startswith("test_answer:"):
+        parts = data.split(":")
+        if len(parts) != 4:
+            await callback_query.answer("Некорректные данные теста.")
+            return
+        _, word_id, selected_index, correct_index = parts
+        if selected_index == correct_index:
+            response = "✅ Верно!"
+        else:
+            session = SessionLocal()
+            word_obj = session.query(Word).filter_by(id=int(word_id)).first()
+            response = f"❌ Неверно. Правильный ответ: {word_obj.translation if word_obj else 'Неизвестно'}"
+            session.close()
+        await bot.send_message(chat_id, response, parse_mode="HTML")
+        await callback_query.answer()
+        return
+
+    # Обработка ответов тестов с кнопками (тип 2 – обратный тест)
+    if data.startswith("test_answer_rev:"):
+        parts = data.split(":")
+        if len(parts) != 4:
+            await callback_query.answer("Некорректные данные теста.")
+            return
+        _, word_id, selected_index, correct_index = parts
+        session = SessionLocal()
+        word_obj = session.query(Word).filter_by(id=int(word_id)).first()
+        session.close()
+        if selected_index == correct_index:
+            response = "✅ Верно!"
+        else:
+            response = f"❌ Неверно. Правильный ответ: {word_obj.word_et if word_obj else 'Неизвестно'}"
+        await bot.send_message(chat_id, response, parse_mode="HTML")
+        await callback_query.answer()
+        return
+
+    # Остальные inline-команды
     if data == "startmailing":
         await send_five_words(chat_id, bot)
         await callback_query.answer("Рассылка запущена!")
-    elif data == "random_word":
+        return
+
+    if data == "random_word":
         session = SessionLocal()
         word_obj = session.query(Word).order_by(func.random()).first()
         if word_obj:
@@ -343,8 +401,10 @@ async def inline_button_handler(callback_query: types.CallbackQuery):
         session.commit()
         session.close()
         await callback_query.answer("Случайное слово!")
-    elif data == "random_test":
-        # Для inline кнопки "random_test" реализуем аналогичную логику, выбирая только тип 1 или 2
+        return
+
+    if data == "random_test":
+        # Для inline-теста выбираем только тип 1 или 2 (без свободного ввода)
         session = SessionLocal()
         test_type = random.choice([1, 2])
         word_obj = session.query(Word).order_by(func.random()).first()
@@ -374,64 +434,23 @@ async def inline_button_handler(callback_query: types.CallbackQuery):
                 keyboard.add(InlineKeyboardButton(option, callback_data=f"test_answer:{word_obj.id}:{idx}:{correct_index}"))
             test_text = f"❓ Как переводится слово <b>{word_obj.word_et}</b>?"
             await bot.send_message(chat_id, test_text, parse_mode="HTML", reply_markup=keyboard)
-        elif data.startswith("test_answer:"):
-            parts = data.split(":")
-            if len(parts) != 4:
-                await callback_query.answer("Некорректные данные теста.")
-                return
-            _, word_id, selected_index, correct_index = parts
-            if selected_index == correct_index:
-                response = "✅ Верно!"
-            else:
-                session = SessionLocal()
-                word_obj = session.query(Word).filter_by(id=int(word_id)).first()
-                session.close()
-                correct_text = word_obj.translation if word_obj else "Неизвестно"
-                response = f"❌ Неверно. Правильный ответ: {correct_text}"
-            await bot.send_message(chat_id, response, parse_mode="HTML")
-            await callback_query.answer()
-            session.close()
-            return
-        elif data.startswith("test_answer_rev:"):
-            parts = data.split(":")
-            if len(parts) != 4:
-                await callback_query.answer("Некорректные данные теста.")
-                return
-            _, word_id, selected_index, correct_index = parts
-            session = SessionLocal()
-            word_obj = session.query(Word).filter_by(id=int(word_id)).first()
-            session.close()
-            if selected_index == correct_index:
-                response = "✅ Верно!"
-            else:
-                correct_text = word_obj.word_et if word_obj else "Неизвестно"
-                response = f"❌ Неверно. Правильный ответ: {correct_text}"
-            await bot.send_message(chat_id, response, parse_mode="HTML")
-            await callback_query.answer()
-        elif data == "progress":
-            session = SessionLocal()
-            total = session.query(Word).count()
-            user_sent = session.query(UserWordStatus).filter_by(chat_id=chat_id).count()
-            text = f"Прогресс:\nВыучено {user_sent} из {total} слов."
-            await bot.send_message(chat_id, text, parse_mode="HTML")
-            session.close()
-            await callback_query.answer()
-        elif data.startswith("toggle_repeat:"):
-            # Обработка кнопки "Повторять слово чаще" / "Убрать из повторяющихся"
-            _, word_id = data.split(":")
-            session = SessionLocal()
-            word_obj = session.query(Word).filter_by(id=int(word_id)).first()
-            if word_obj:
-                word_obj.repeat_more = not word_obj.repeat_more
-                session.commit()
-                status = "помечено" if word_obj.repeat_more else "убрано из повторяющихся"
-                await bot.send_message(chat_id, f"Слово {word_obj.word_et} теперь {status}.", parse_mode="HTML")
-            session.close()
-            await callback_query.answer()
-        else:
-            await callback_query.answer()
-    else:
+        session.commit()
+        session.close()
+        await callback_query.answer("Тест отправлен!")
+        return
+
+    if data == "progress":
+        session = SessionLocal()
+        total = session.query(Word).count()
+        user_sent = session.query(UserWordStatus).filter_by(chat_id=chat_id).count()
+        text = f"Прогресс:\nВыучено {user_sent} из {total} слов."
+        await bot.send_message(chat_id, text, parse_mode="HTML")
+        session.close()
         await callback_query.answer()
+        return
+
+    # Если ни один вариант не сработал – просто отвечаем
+    await callback_query.answer()
 
 async def typing_test_answer_handler(message: types.Message):
     chat_id = str(message.chat.id)

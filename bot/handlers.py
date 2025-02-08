@@ -3,7 +3,6 @@ from aiogram import types, Dispatcher, Bot
 from sqlalchemy.sql import func
 from datetime import datetime
 from bot.database import SessionLocal, Word, UserSettings, UserWordStatus
-from bot.audio_handlers import get_audio_path
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import random
 

@@ -36,7 +36,7 @@ async def send_word_audio(callback_query: types.CallbackQuery):
     audio_bytes = BytesIO(response.content)
     audio_bytes.name = f"{word}.mp3"  # имя файла теперь соответствует слову
     # Используем метод answer_audio, который при отправке аудио отображает имя файла
-    await callback_query.message.answer_audio(audio_bytes)
+    await callback_query.message.send_voice(audio_bytes)
     await callback_query.answer()
 
 def register_audio_handlers(dp):

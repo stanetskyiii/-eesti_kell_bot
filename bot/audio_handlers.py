@@ -1,48 +1,46 @@
+# bot/audio_handlers.py
 import os
-import aiohttp
 from aiogram import types
+import requests
 from io import BytesIO
-from aiogram.filters import Text
 
+# Получаем базовый URL для аудиофайлов из переменной окружения,
+# иначе используем значение по умолчанию.
 AUDIO_BASE_URL = os.getenv('AUDIO_BASE_URL', 'https://storage.googleapis.com/eesti-bot-project')
 
 def get_audio_url(word: str) -> str:
-    return f"{AUDIO_BASE_URL}/{word}.mp3"
-
-async def fetch_audio(url):
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
-            if response.status == 200:
-                return await response.read()
-            return None
+    """
+    Формирует URL аудиофайла по шаблону:
+    https://storage.googleapis.com/eesti-bot-project/<слово>.mp3
+    """
+    filename = f"{word}.mp3"
+    return f"{AUDIO_BASE_URL}/{filename}"
 
 async def send_word_audio(callback_query: types.CallbackQuery):
-    data = callback_query.data
+    data = callback_query.data  # ожидается формат "play:<слово>"
     try:
-        _, word = data.split(":", 1)
+        prefix, word = data.split(":", 1)
     except ValueError:
-        await callback_query.message.answer("Некорректные данные!")
+        await callback_query.answer("Некорректные данные!")
         return
 
     audio_url = get_audio_url(word)
-    audio_content = await fetch_audio(audio_url)
-
-    if audio_content is None:
-        await callback_query.message.answer("Аудиофайл не найден!")
+    try:
+        response = requests.get(audio_url)
+        response.raise_for_status()
+    except Exception as e:
+        await callback_query.answer("Аудиофайл не найден!")
         return
 
-    # Сохраняем аудиофайл во временный файл, чтобы передать имя
-    temp_filename = f"{word}.mp3"
-    with open(temp_filename, "wb") as f:
-        f.write(audio_content)
-
-    # Отправляем аудиофайл с корректным именем
-    await callback_query.message.answer_voice(types.FSInputFile(temp_filename))
-
-    # Удаляем временный файл после отправки
-    os.remove(temp_filename)
-
+    # Читаем аудио как байты, задаём имя файла (оно будет использовано при отправке)
+    audio_bytes = BytesIO(response.content)
+    audio_bytes.name = f"{word}.mp3"  # имя файла теперь соответствует слову
+    # Используем метод answer_audio, который при отправке аудио отображает имя файла
+    await callback_query.message.send_voice(audio_bytes)
     await callback_query.answer()
 
 def register_audio_handlers(dp):
-    dp.register_callback_query_handler(send_word_audio, Text(startswith="play:"))
+    dp.register_callback_query_handler(
+        send_word_audio,
+        lambda c: c.data is not None and c.data.startswith("play:")
+    )

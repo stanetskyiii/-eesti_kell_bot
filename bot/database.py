@@ -1,11 +1,21 @@
 # bot/database.py
 import os
+import logging
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from datetime import datetime
 
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Получаем строку подключения из переменной окружения.
 DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///estonian_bot.db')
+logger.info(f"Используется база данных: {DATABASE_URL}")
+
+# Создаем engine и sessionmaker
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(bind=engine)
 
 Base = declarative_base()
 

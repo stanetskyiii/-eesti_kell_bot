@@ -38,6 +38,7 @@ def get_word_message(word_obj):
     keyboard.add(InlineKeyboardButton("Меню", callback_data="menu"))
     return text, keyboard
 
+# ОБРАБОТЧИК ДЛЯ КОМАНДЫ /start
 async def start_handler(message: types.Message):
     chat_id = str(message.chat.id)
     session = SessionLocal()
@@ -65,7 +66,7 @@ async def start_handler(message: types.Message):
         "• /random_word – Получить случайное слово\n"
         "• /random_test – Получить случайный тест\n"
         "• /progress – Узнать свой прогресс (выучено X из Y)\n"
-        "• /settings – Посмотреть настройки\n"
+        "• /settings – Посмотреть текущие настройки\n"
         "• /setsettings – Изменить настройки\n"
         "• /help – Помощь\n"
         "• /get5words – Получить 5 слов прямо сейчас\n"
@@ -81,10 +82,12 @@ async def start_handler(message: types.Message):
     )
     await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
 
+# ОБРАБОТЧИК ДЛЯ /startmailing
 async def startmailing_handler(message: types.Message):
     chat_id = str(message.chat.id)
     await send_five_words(chat_id, message.bot)
 
+# ОБРАБОТЧИК ДЛЯ /help
 async def help_handler(message: types.Message):
     help_text = (
         "Список команд:\n"
@@ -104,6 +107,7 @@ async def help_handler(message: types.Message):
     )
     await message.answer(help_text, parse_mode="HTML")
 
+# ОБРАБОТЧИК ДЛЯ /random_word
 async def random_word_handler(message: types.Message):
     session = SessionLocal()
     word_obj = session.query(Word).order_by(func.random()).first()
@@ -117,10 +121,11 @@ async def random_word_handler(message: types.Message):
     session.commit()
     session.close()
 
+# ОБРАБОТЧИК ДЛЯ /random_test
 async def random_test_handler(message: types.Message):
     session = SessionLocal()
     chat_id = str(message.chat.id)
-    # Используем случайный выбор с вероятностями: 40% тип 1, 40% тип 2, 20% тип 3
+    # Выбор типа теста с весами: 40% для типа 1, 40% для типа 2, 20% для типа 3
     test_type = random.choices([1, 2, 3], weights=[40, 40, 20])[0]
     word_obj = session.query(Word).order_by(func.random()).first()
     if not word_obj:
@@ -173,15 +178,18 @@ async def random_test_handler(message: types.Message):
     session.commit()
     session.close()
 
+# ОБРАБОТЧИК ДЛЯ /get5words
 async def get_five_words_handler(message: types.Message):
     chat_id = str(message.chat.id)
     await send_five_words(chat_id, message.bot)
 
+# ОБРАБОТЧИК ДЛЯ /settings (КОМАНДА)
 async def settings_handler(message: types.Message):
     chat_id = str(message.chat.id)
     session = SessionLocal()
     user = session.query(UserSettings).filter_by(chat_id=chat_id).first()
     if not user:
+        # Если запись не найдена, создаем её с настройками по умолчанию
         user = UserSettings(
             chat_id=chat_id,
             words_per_hour=5,
@@ -207,16 +215,18 @@ async def settings_handler(message: types.Message):
         f"Интервал отправки тестов: <b>{user.test_interval_minutes}</b> минут\n"
         f"Количество тестов за раз: <b>{user.tests_per_batch}</b>\n\n"
         "Чтобы изменить настройки, отправьте сообщение в формате:\n"
-        "<code>/setsettings &lt;слова в час&gt; &lt;интервал слов (мин)&gt; &lt;начало&gt; &lt;окончание&gt; "
-        "&lt;интервал тестов (мин)&gt; &lt;кол-во тестов&gt;</code>\n"
+        "<code>/setsettings <слова в час> <интервал слов (мин)> <начало> <окончание> <интервал тестов (мин)> <кол-во тестов></code>\n"
         "Например: <code>/setsettings 5 60 09:00 23:00 90 1</code>"
     )
     await message.answer(text, parse_mode="HTML")
     session.close()
 
+# ОБРАБОТЧИК ДЛЯ /setsettings
 async def set_settings_handler(message: types.Message):
     try:
         args = message.get_args().split()
+        # Ожидается 6 параметров:
+        # <words_per_hour> <interval_minutes> <start_time> <end_time> <test_interval_minutes> <tests_per_batch>
         words_per_hour = int(args[0])
         interval_minutes = int(args[1])
         start_time = args[2]
@@ -232,20 +242,30 @@ async def set_settings_handler(message: types.Message):
     user = session.query(UserSettings).filter_by(chat_id=chat_id).first()
     if not user:
         logger.info(f"/setsettings: для пользователя {chat_id} запись не найдена – создаём новую.")
-        user = UserSettings(chat_id=chat_id)
+        user = UserSettings(
+            chat_id=chat_id,
+            words_per_hour=words_per_hour,
+            interval_minutes=interval_minutes,
+            start_time=start_time,
+            end_time=end_time,
+            test_interval_minutes=test_interval_minutes,
+            tests_per_batch=tests_per_batch
+        )
         session.add(user)
-    logger.info(f"Обновление настроек для пользователя {chat_id}: words_per_hour={words_per_hour}, interval_minutes={interval_minutes}, "
-                f"start_time={start_time}, end_time={end_time}, test_interval_minutes={test_interval_minutes}, tests_per_batch={tests_per_batch}")
-    user.words_per_hour = words_per_hour
-    user.interval_minutes = interval_minutes
-    user.start_time = start_time
-    user.end_time = end_time
-    user.test_interval_minutes = test_interval_minutes
-    user.tests_per_batch = tests_per_batch
+    else:
+        logger.info(f"Обновление настроек для пользователя {chat_id}: words_per_hour={words_per_hour}, interval_minutes={interval_minutes}, "
+                    f"start_time={start_time}, end_time={end_time}, test_interval_minutes={test_interval_minutes}, tests_per_batch={tests_per_batch}")
+        user.words_per_hour = words_per_hour
+        user.interval_minutes = interval_minutes
+        user.start_time = start_time
+        user.end_time = end_time
+        user.test_interval_minutes = test_interval_minutes
+        user.tests_per_batch = tests_per_batch
     session.commit()
     session.close()
     await message.answer("Настройки обновлены!", parse_mode="HTML")
 
+# ОБРАБОТЧИК ДЛЯ /progress
 async def progress_handler(message: types.Message):
     chat_id = str(message.chat.id)
     session = SessionLocal()
@@ -255,6 +275,7 @@ async def progress_handler(message: types.Message):
     await message.answer(text, parse_mode="HTML")
     session.close()
 
+# Функция отправки 5 слов
 async def send_five_words(chat_id: str, bot: Bot):
     session = SessionLocal()
     sent_word_ids = [uw.word_id for uw in session.query(UserWordStatus).filter_by(chat_id=chat_id).all()]
@@ -283,6 +304,7 @@ async def send_five_words(chat_id: str, bot: Bot):
     session.commit()
     session.close()
 
+# ОБРАБОТЧИК ДЛЯ теста с набором ответа
 async def typing_test_answer_handler(message: types.Message):
     chat_id = str(message.chat.id)
     if chat_id not in pending_typing_tests:
@@ -302,6 +324,7 @@ async def typing_test_answer_handler(message: types.Message):
     await message.answer(response, parse_mode="HTML", reply_markup=keyboard)
     del pending_typing_tests[chat_id]
 
+# Inline-обработчики (кнопки)
 async def help_inline_handler(callback_query: types.CallbackQuery):
     help_text = (
         "Список команд:\n"
@@ -312,8 +335,7 @@ async def help_inline_handler(callback_query: types.CallbackQuery):
         "/settings – Посмотреть текущие настройки\n"
         "/setsettings – Изменить настройки\n"
         "Формат команды /setsettings:\n"
-        "<code>/setsettings &lt;слова в час&gt; &lt;интервал слов (мин)&gt; &lt;начало&gt; &lt;окончание&gt; "
-        "&lt;интервал тестов (мин)&gt; &lt;кол-во тестов&gt;</code>\n"
+        "<code>/setsettings <слова в час> <интервал слов (мин)> <начало> <окончание> <интервал тестов (мин)> <кол-во тестов></code>\n"
         "Например: <code>/setsettings 5 60 09:00 23:00 90 1</code>\n"
         "/get5words – Получить 5 слов прямо сейчас\n"
         "/help – Помощь\n\n"
@@ -323,13 +345,40 @@ async def help_inline_handler(callback_query: types.CallbackQuery):
     await callback_query.answer()
 
 async def settings_inline_handler(callback_query: types.CallbackQuery):
-    settings_text = (
+    # Этот обработчик вызывается при нажатии кнопки «Настройки»
+    # Он просто вызывает settings_handler (чтобы показать актуальные настройки)
+    # и гарантирует, что пользователь видит текущие настройки.
+    chat_id = str(callback_query.message.chat.id)
+    session = SessionLocal()
+    user = session.query(UserSettings).filter_by(chat_id=chat_id).first()
+    if not user:
+        user = UserSettings(
+            chat_id=chat_id,
+            words_per_hour=5,
+            interval_minutes=60,
+            start_time="09:00",
+            end_time="23:00",
+            test_interval_minutes=90,
+            tests_per_batch=1
+        )
+        session.add(user)
+        session.commit()
+        logger.info(f"В settings_inline_handler: создан новый пользователь {chat_id} с настройками по умолчанию.")
+    text = (
+        f"Ваши настройки рассылки:\n"
+        f"Слов в час: <b>{user.words_per_hour}</b>\n"
+        f"Интервал отправки слов: <b>{user.interval_minutes}</b> минут\n"
+        f"Начало рассылки: <b>{user.start_time}</b>\n"
+        f"Окончание рассылки: <b>{user.end_time}</b>\n\n"
+        f"Настройки тестов:\n"
+        f"Интервал отправки тестов: <b>{user.test_interval_minutes}</b> минут\n"
+        f"Количество тестов за раз: <b>{user.tests_per_batch}</b>\n\n"
         "Чтобы изменить настройки, отправьте сообщение в формате:\n"
-        "<code>/setsettings &lt;слова в час&gt; &lt;интервал слов (мин)&gt; &lt;начало&gt; &lt;окончание&gt; "
-        "&lt;интервал тестов (мин)&gt; &lt;кол-во тестов&gt;</code>\n"
+        "<code>/setsettings <слова в час> <интервал слов (мин)> <начало> <окончание> <интервал тестов (мин)> <кол-во тестов></code>\n"
         "Например: <code>/setsettings 5 60 09:00 23:00 90 1</code>"
     )
-    await callback_query.message.edit_text(settings_text, parse_mode="HTML")
+    await callback_query.message.edit_text(text, parse_mode="HTML")
+    session.close()
     await callback_query.answer()
 
 async def menu_inline_handler(callback_query: types.CallbackQuery):
@@ -501,6 +550,7 @@ async def inline_button_handler(callback_query: types.CallbackQuery):
         return
     await callback_query.answer()
 
+# ОБРАБОТЧИК ДЛЯ ответов в тесте с набором текста
 async def typing_test_answer_handler(message: types.Message):
     chat_id = str(message.chat.id)
     if chat_id not in pending_typing_tests:
@@ -520,15 +570,17 @@ async def typing_test_answer_handler(message: types.Message):
     await message.answer(response, parse_mode="HTML", reply_markup=keyboard)
     del pending_typing_tests[chat_id]
 
+# Регистрация обработчиков
 def register_handlers(dp: Dispatcher):
+    # Регистрируем обработчик для команды /settings первым, чтобы он точно срабатывал
+    dp.register_message_handler(settings_handler, commands=["settings"])
+    dp.register_message_handler(set_settings_handler, commands=["setsettings"])
     dp.register_message_handler(start_handler, commands=["start"])
     dp.register_message_handler(startmailing_handler, commands=["startmailing"])
     dp.register_message_handler(help_handler, commands=["help"])
     dp.register_message_handler(random_word_handler, commands=["random_word"])
     dp.register_message_handler(random_test_handler, commands=["random_test"])
     dp.register_message_handler(get_five_words_handler, commands=["get5words"])
-    dp.register_message_handler(settings_handler, commands=["settings"])
-    dp.register_message_handler(set_settings_handler, commands=["setsettings"])
     dp.register_message_handler(progress_handler, commands=["progress"])
     dp.register_callback_query_handler(help_inline_handler, lambda c: c.data == "help")
     dp.register_callback_query_handler(settings_inline_handler, lambda c: c.data == "settings")

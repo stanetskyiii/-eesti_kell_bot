@@ -35,8 +35,9 @@ class UserSettings(Base):
     id = Column(Integer, primary_key=True)
     chat_id = Column(String, nullable=False, unique=True)  # Идентификатор пользователя
     words_per_hour = Column(Integer, default=5)             # Сколько слов отправлять за цикл
-    start_time = Column(String, default="09:00")            # Начало рассылки
-    end_time = Column(String, default="23:00")              # Окончание рассылки
+    interval_minutes = Column(Integer, default=60)          # Интервал отправки слов в минутах (новый параметр)
+    start_time = Column(String, default="09:00")             # Начало рассылки
+    end_time = Column(String, default="23:00")               # Окончание рассылки
 
 class UserWordStatus(Base):
     __tablename__ = 'user_word_status'
@@ -47,4 +48,5 @@ class UserWordStatus(Base):
     last_sent = Column(DateTime, nullable=True)
 
 def init_db():
+    """Создает таблицы в БД, если их еще нет."""
     Base.metadata.create_all(engine)

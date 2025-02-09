@@ -1,10 +1,14 @@
 # bot/handlers.py
+import logging
 from aiogram import types, Dispatcher, Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ForceReply
 from sqlalchemy.sql import func
 from datetime import datetime
 from bot.database import SessionLocal, Word, UserSettings, UserWordStatus
 import random
+
+# Настройка логирования
+logger = logging.getLogger(__name__)
 
 # Глобальный словарь для ожидающих тестов с набором ответа
 pending_typing_tests = {}
@@ -53,6 +57,7 @@ async def start_handler(message: types.Message):
         user = UserSettings(chat_id=chat_id, words_per_hour=5, interval_minutes=60, start_time="09:00", end_time="23:00")
         session.add(user)
         session.commit()
+        logger.info(f"Создан новый пользователь {chat_id} с настройками по умолчанию.")
     session.close()
     
     text = (
@@ -209,10 +214,13 @@ async def settings_handler(message: types.Message):
     session = SessionLocal()
     user = session.query(UserSettings).filter_by(chat_id=chat_id).first()
     if not user:
-        # Если пользователь не найден, создаём запись с default-настройками
+        # Если пользователь не найден, создаём запись с настройками по умолчанию
         user = UserSettings(chat_id=chat_id, words_per_hour=5, interval_minutes=60, start_time="09:00", end_time="23:00")
         session.add(user)
         session.commit()
+        logger.info(f"В /settings создан новый пользователь {chat_id} с настройками по умолчанию.")
+    else:
+        logger.info(f"В /settings для пользователя {chat_id} обнаружены настройки: words_per_hour={user.words_per_hour}, interval_minutes={user.interval_minutes}, start_time={user.start_time}, end_time={user.end_time}")
     text = (
         f"Ваши настройки рассылки:\n"
         f"Слов в час: <b>{user.words_per_hour}</b>\n"
@@ -234,15 +242,20 @@ async def set_settings_handler(message: types.Message):
         interval_minutes = int(args[1])
         start_time = args[2]
         end_time = args[3]
-    except Exception:
+    except Exception as e:
+        logger.exception("Ошибка при разборе аргументов команды /setsettings")
         await message.answer("Неверный формат. Используйте: /setsettings &lt;слова в час&gt; &lt;интервал в минутах&gt; &lt;начало&gt; &lt;окончание&gt;", parse_mode="HTML")
         return
     chat_id = str(message.chat.id)
     session = SessionLocal()
     user = session.query(UserSettings).filter_by(chat_id=chat_id).first()
     if not user:
+        # Если записи нет, создаём нового пользователя.
+        logger.info(f"В /setsettings для пользователя {chat_id} запись не найдена – создаём новую.")
         user = UserSettings(chat_id=chat_id)
         session.add(user)
+    # Логируем перед обновлением
+    logger.info(f"Обновление настроек для пользователя {chat_id}: words_per_hour={words_per_hour}, interval_minutes={interval_minutes}, start_time={start_time}, end_time={end_time}")
     user.words_per_hour = words_per_hour
     user.interval_minutes = interval_minutes
     user.start_time = start_time

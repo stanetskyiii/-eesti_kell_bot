@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Получаем строку подключения из переменной окружения.
+# Получаем строку подключения из переменной окружения
 DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///estonian_bot.db')
 logger.info(f"Используется база данных: {DATABASE_URL}")
 
@@ -25,7 +25,7 @@ class Word(Base):
     word_et = Column(String, nullable=False)           # Эстонское слово
     part_of_speech = Column(String, nullable=False)      # Часть речи
     translation = Column(String, nullable=False)         # Перевод
-    ai_generated_text = Column(Text, nullable=True)      # Пример использования
+    ai_generated_text = Column(Text, nullable=True)      # Пример использования (опционально)
     correct_answers = Column(Integer, default=0)
     incorrect_answers = Column(Integer, default=0)
     repeat_more = Column(Boolean, default=False)         # Флаг для частого повторения
@@ -33,11 +33,13 @@ class Word(Base):
 class UserSettings(Base):
     __tablename__ = 'user_settings'
     id = Column(Integer, primary_key=True)
-    chat_id = Column(String, nullable=False, unique=True)  # Идентификатор пользователя
-    words_per_hour = Column(Integer, default=5)             # Сколько слов отправлять за цикл
-    interval_minutes = Column(Integer, default=60)          # Интервал отправки слов в минутах (новый параметр)
-    start_time = Column(String, default="09:00")             # Начало рассылки
-    end_time = Column(String, default="23:00")               # Окончание рассылки
+    chat_id = Column(String, nullable=False, unique=True)
+    words_per_hour = Column(Integer, default=5)           # Сколько слов отправлять за цикл
+    interval_minutes = Column(Integer, default=60)        # Интервал отправки слов в минутах
+    start_time = Column(String, default="09:00")           # Начало рассылки
+    end_time = Column(String, default="23:00")             # Окончание рассылки
+    test_interval_minutes = Column(Integer, default=90)    # Интервал отправки тестов в минутах (новый столбец)
+    tests_per_batch = Column(Integer, default=1)           # Количество тестов за раз (новый столбец)
 
 class UserWordStatus(Base):
     __tablename__ = 'user_word_status'

@@ -43,6 +43,16 @@ def get_word_message(word_obj):
     return text, keyboard
 
 async def start_handler(message: types.Message):
+    # Создаем запись настроек, если у пользователя её еще нет
+    chat_id = str(message.chat.id)
+    session = SessionLocal()
+    user = session.query(UserSettings).filter_by(chat_id=chat_id).first()
+    if not user:
+        user = UserSettings(chat_id=chat_id)
+        session.add(user)
+        session.commit()
+    session.close()
+    
     text = (
         "Привет! Я бот для изучения эстонского языка на уровни A1–A2.\n"
         "В моей базе 1781 слово, которые полностью покрывают эти уровни.\n\n"
@@ -219,7 +229,7 @@ async def set_settings_handler(message: types.Message):
         start_time = args[1]
         end_time = args[2]
     except Exception:
-        await message.answer("Неверный формат. Используйте: /setsettings <слова в час> <начало> <окончание>", parse_mode="HTML")
+        await message.answer("Неверный формат. Используйте: /setsettings &lt;слова в час&gt; &lt;начало&gt; &lt;окончание&gt;", parse_mode="HTML")
         return
     chat_id = str(message.chat.id)
     session = SessionLocal()
@@ -363,7 +373,12 @@ async def inline_button_handler(callback_query: types.CallbackQuery):
             word_obj = session.query(Word).filter_by(id=int(word_id)).first()
             response = f"❌ Неверно. Правильный ответ: {word_obj.translation if word_obj else 'Неизвестно'}"
             session.close()
-        await bot.send_message(chat_id, response, parse_mode="HTML")
+        keyboard = InlineKeyboardMarkup(row_width=2)
+        keyboard.add(
+            InlineKeyboardButton("Следующий тест", callback_data="random_test"),
+            InlineKeyboardButton("Меню", callback_data="menu")
+        )
+        await bot.send_message(chat_id, response, parse_mode="HTML", reply_markup=keyboard)
         await callback_query.answer()
         return
 
@@ -381,7 +396,12 @@ async def inline_button_handler(callback_query: types.CallbackQuery):
             response = "✅ Верно!"
         else:
             response = f"❌ Неверно. Правильный ответ: {word_obj.word_et if word_obj else 'Неизвестно'}"
-        await bot.send_message(chat_id, response, parse_mode="HTML")
+        keyboard = InlineKeyboardMarkup(row_width=2)
+        keyboard.add(
+            InlineKeyboardButton("Следующий тест", callback_data="random_test"),
+            InlineKeyboardButton("Меню", callback_data="menu")
+        )
+        await bot.send_message(chat_id, response, parse_mode="HTML", reply_markup=keyboard)
         await callback_query.answer()
         return
 
@@ -463,7 +483,12 @@ async def typing_test_answer_handler(message: types.Message):
         response = "✅ Верно!"
     else:
         response = f"❌ Неверно. Правильный ответ: {expected}"
-    await message.answer(response, parse_mode="HTML")
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    keyboard.add(
+        InlineKeyboardButton("Следующий тест", callback_data="random_test"),
+        InlineKeyboardButton("Меню", callback_data="menu")
+    )
+    await message.answer(response, parse_mode="HTML", reply_markup=keyboard)
     del pending_typing_tests[chat_id]
 
 def register_handlers(dp: Dispatcher):

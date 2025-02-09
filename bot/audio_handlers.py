@@ -1,8 +1,9 @@
 # bot/audio_handlers.py
 import os
-from aiogram import types
 import requests
 from io import BytesIO
+from aiogram import types
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # Получаем базовый URL для аудиофайлов из переменной окружения,
 # иначе используем значение по умолчанию.
@@ -32,11 +33,18 @@ async def send_word_audio(callback_query: types.CallbackQuery):
         await callback_query.answer("Аудиофайл не найден!")
         return
 
-    # Читаем аудио как байты, задаём имя файла (оно будет использовано при отправке)
+    # Читаем аудио как байты
     audio_bytes = BytesIO(response.content)
-    audio_bytes.name = f"{word}.mp3"  # имя файла теперь соответствует слову
-    # Используем метод answer_audio, который при отправке аудио отображает имя файла
-    await callback_query.message.answer_voice(types.InputFile(audio_bytes, filename=f"{word}.mp3"))
+    # Указываем имя файла (для передачи сохраняем расширение .mp3)
+    audio_bytes.name = f"{word}.mp3"
+    
+    # Отправляем аудиофайл через send_audio (а не как голосовое сообщение),
+    # чтобы избежать автоматического воспроизведения следующего аудио.
+    # Параметр title задаёт название аудио (в нашем случае — слово без расширения)
+    await callback_query.message.answer_audio(
+        audio=types.InputFile(audio_bytes, filename=f"{word}.mp3"),
+        title=word
+    )
     await callback_query.answer()
 
 def register_audio_handlers(dp):

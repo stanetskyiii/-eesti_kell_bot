@@ -102,7 +102,8 @@ async def help_handler(message: types.Message):
         "/settings – Посмотреть текущие настройки\n"
         "/setsettings – Изменить настройки\n"
         "Формат команды /setsettings:\n"
-        "<code>/setsettings <слова в час> <интервал слов (мин)> <начало> <окончание> <интервал тестов (мин)> <кол-во тестов></code>\n"
+        "<code>/setsettings &lt;слова в час&gt; &lt;интервал слов (мин)&gt; &lt;начало&gt; &lt;окончание&gt; "
+        "&lt;интервал тестов (мин)&gt; &lt;кол-во тестов&gt;</code>\n"
         "Например: <code>/setsettings 5 60 09:00 23:00 90 1</code>\n"
         "/get5words – Получить 5 слов прямо сейчас\n"
         "/help – Помощь\n\n"
@@ -191,14 +192,14 @@ async def get_five_words_handler(message: types.Message):
     chat_id = str(message.chat.id)
     await send_five_words(chat_id, message.bot)
 
-# ОБРАБОТЧИК ДЛЯ КОМАНДЫ /settings (ПРОСМОТР НАСТРОЕК)
+# ОБРАБОТЧИК ДЛЯ КОМАНДЫ /settings (Просмотр текущих настроек)
 async def settings_handler(message: types.Message):
     session = SessionLocal()
     try:
         chat_id = str(message.chat.id)
         user = session.query(UserSettings).filter_by(chat_id=chat_id).first()
         if not user:
-            # Если запись не найдена, создаем её с настройками по умолчанию
+            # Если записи нет, создаем её с настройками по умолчанию
             user = UserSettings(
                 chat_id=chat_id,
                 words_per_hour=5,
@@ -224,7 +225,7 @@ async def settings_handler(message: types.Message):
             f"Интервал отправки тестов: <b>{user.test_interval_minutes}</b> минут\n"
             f"Количество тестов за раз: <b>{user.tests_per_batch}</b>\n\n"
             "Чтобы изменить настройки, отправьте сообщение в формате:\n"
-            "<code>/setsettings <слова в час> <интервал слов (мин)> <начало> <окончание> <интервал тестов (мин)> <кол-во тестов></code>\n"
+            "<code>/setsettings &lt;слова в час&gt; &lt;интервал слов (мин)&gt; &lt;начало&gt; &lt;окончание&gt; &lt;интервал тестов (мин)&gt; &lt;кол-во тестов&gt;</code>\n"
             "Например: <code>/setsettings 5 60 09:00 23:00 90 1</code>"
         )
         await message.answer(text, parse_mode="HTML")
@@ -234,7 +235,7 @@ async def settings_handler(message: types.Message):
     finally:
         session.close()
 
-# ОБРАБОТЧИК ДЛЯ КОМАНДЫ /setsettings (ИЗМЕНЕНИЕ НАСТРОЕК)
+# ОБРАБОТЧИК ДЛЯ КОМАНДЫ /setsettings (Изменение настроек)
 async def set_settings_handler(message: types.Message):
     session = SessionLocal()
     try:
@@ -365,7 +366,7 @@ async def help_inline_handler(callback_query: types.CallbackQuery):
         "/settings – Посмотреть текущие настройки\n"
         "/setsettings – Изменить настройки\n"
         "Формат команды /setsettings:\n"
-        "<code>/setsettings <слова в час> <интервал слов (мин)> <начало> <окончание> <интервал тестов (мин)> <кол-во тестов></code>\n"
+        "<code>/setsettings &lt;слова в час&gt; &lt;интервал слов (мин)&gt; &lt;начало&gt; &lt;окончание&gt; &lt;интервал тестов (мин)&gt; &lt;кол-во тестов&gt;</code>\n"
         "Например: <code>/setsettings 5 60 09:00 23:00 90 1</code>\n"
         "/get5words – Получить 5 слов прямо сейчас\n"
         "/help – Помощь\n\n"
@@ -403,7 +404,7 @@ async def settings_inline_handler(callback_query: types.CallbackQuery):
             f"Интервал отправки тестов: <b>{user.test_interval_minutes}</b> минут\n"
             f"Количество тестов за раз: <b>{user.tests_per_batch}</b>\n\n"
             "Чтобы изменить настройки, отправьте сообщение в формате:\n"
-            "<code>/setsettings <слова в час> <интервал слов (мин)> <начало> <окончание> <интервал тестов (мин)> <кол-во тестов></code>\n"
+            "<code>/setsettings &lt;слова в час&gt; &lt;интервал слов (мин)&gt; &lt;начало&gt; &lt;окончание&gt; &lt;интервал тестов (мин)&gt; &lt;кол-во тестов&gt;</code>\n"
             "Например: <code>/setsettings 5 60 09:00 23:00 90 1</code>"
         )
         await callback_query.message.edit_text(text, parse_mode="HTML")

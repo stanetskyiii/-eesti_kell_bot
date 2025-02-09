@@ -42,22 +42,26 @@ def get_word_message(word_obj):
 async def start_handler(message: types.Message):
     chat_id = str(message.chat.id)
     session = SessionLocal()
-    user = session.query(UserSettings).filter_by(chat_id=chat_id).first()
-    if not user:
-        # Создаем пользователя с настройками по умолчанию
-        user = UserSettings(
-            chat_id=chat_id,
-            words_per_hour=5,
-            interval_minutes=60,
-            start_time="09:00",
-            end_time="23:00",
-            test_interval_minutes=90,
-            tests_per_batch=1
-        )
-        session.add(user)
-        session.commit()
-        logger.info(f"Создан новый пользователь {chat_id} с настройками по умолчанию.")
-    session.close()
+    try:
+        user = session.query(UserSettings).filter_by(chat_id=chat_id).first()
+        if not user:
+            # Создаем пользователя с настройками по умолчанию
+            user = UserSettings(
+                chat_id=chat_id,
+                words_per_hour=5,
+                interval_minutes=60,
+                start_time="09:00",
+                end_time="23:00",
+                test_interval_minutes=90,
+                tests_per_batch=1
+            )
+            session.add(user)
+            session.commit()
+            logger.info(f"Создан новый пользователь {chat_id} с настройками по умолчанию.")
+    except Exception as e:
+        logger.exception("Ошибка в start_handler")
+    finally:
+        session.close()
     text = (
         "Привет! Я бот для изучения эстонского языка на уровни A1–A2.\n"
         "В моей базе 1781 слово, которые полностью покрывают эти уровни.\n\n"
@@ -98,8 +102,7 @@ async def help_handler(message: types.Message):
         "/settings – Посмотреть текущие настройки\n"
         "/setsettings – Изменить настройки\n"
         "Формат команды /setsettings:\n"
-        "<code>/setsettings &lt;слова в час&gt; &lt;интервал слов (мин)&gt; &lt;начало&gt; &lt;окончание&gt; "
-        "&lt;интервал тестов (мин)&gt; &lt;кол-во тестов&gt;</code>\n"
+        "<code>/setsettings <слова в час> <интервал слов (мин)> <начало> <окончание> <интервал тестов (мин)> <кол-во тестов></code>\n"
         "Например: <code>/setsettings 5 60 09:00 23:00 90 1</code>\n"
         "/get5words – Получить 5 слов прямо сейчас\n"
         "/help – Помощь\n\n"
@@ -110,119 +113,130 @@ async def help_handler(message: types.Message):
 # ОБРАБОТЧИК ДЛЯ /random_word
 async def random_word_handler(message: types.Message):
     session = SessionLocal()
-    word_obj = session.query(Word).order_by(func.random()).first()
-    if not word_obj:
-        await message.answer("База слов пуста!", parse_mode="HTML")
+    try:
+        word_obj = session.query(Word).order_by(func.random()).first()
+        if not word_obj:
+            await message.answer("База слов пуста!", parse_mode="HTML")
+            return
+        text, keyboard = get_word_message(word_obj)
+        await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+        mark_word_as_sent(session, str(message.chat.id), word_obj.id)
+        session.commit()
+    except Exception as e:
+        logger.exception("Ошибка в random_word_handler")
+    finally:
         session.close()
-        return
-    text, keyboard = get_word_message(word_obj)
-    await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
-    mark_word_as_sent(session, str(message.chat.id), word_obj.id)
-    session.commit()
-    session.close()
 
 # ОБРАБОТЧИК ДЛЯ /random_test
 async def random_test_handler(message: types.Message):
     session = SessionLocal()
-    chat_id = str(message.chat.id)
-    # Выбор типа теста с весами: 40% для типа 1, 40% для типа 2, 20% для типа 3
-    test_type = random.choices([1, 2, 3], weights=[40, 40, 20])[0]
-    word_obj = session.query(Word).order_by(func.random()).first()
-    if not word_obj:
-        await message.answer("База слов пуста!", parse_mode="HTML")
+    try:
+        chat_id = str(message.chat.id)
+        test_type = random.choices([1, 2, 3], weights=[40, 40, 20])[0]
+        word_obj = session.query(Word).order_by(func.random()).first()
+        if not word_obj:
+            await message.answer("База слов пуста!", parse_mode="HTML")
+            return
+        if test_type == 1:
+            correct = word_obj.translation
+            options = [correct]
+            others = session.query(Word).filter(
+                Word.part_of_speech == word_obj.part_of_speech,
+                Word.id != word_obj.id
+            ).order_by(func.random()).limit(3).all()
+            if len(others) < 3:
+                test_type = 3
+            else:
+                for w in others:
+                    options.append(w.translation)
+                random.shuffle(options)
+                correct_index = options.index(correct)
+                keyboard = InlineKeyboardMarkup(row_width=2)
+                for idx, option in enumerate(options):
+                    keyboard.add(InlineKeyboardButton(option, callback_data=f"test_answer:{word_obj.id}:{idx}:{correct_index}"))
+                test_text = f"❓ Как переводится слово <b>{word_obj.word_et}</b>?"
+                await message.answer(test_text, parse_mode="HTML", reply_markup=keyboard)
+        elif test_type == 2:
+            correct = word_obj.word_et
+            options = [correct]
+            others = session.query(Word).filter(
+                Word.part_of_speech == word_obj.part_of_speech,
+                Word.id != word_obj.id
+            ).order_by(func.random()).limit(3).all()
+            if len(others) < 3:
+                test_type = 3
+            else:
+                for w in others:
+                    options.append(w.word_et)
+                random.shuffle(options)
+                correct_index = options.index(correct)
+                keyboard = InlineKeyboardMarkup(row_width=2)
+                for idx, option in enumerate(options):
+                    keyboard.add(InlineKeyboardButton(option, callback_data=f"test_answer_rev:{word_obj.id}:{idx}:{correct_index}"))
+                test_text = f"❓ Как по‑эстонски будет слово <b>{word_obj.translation}</b>?"
+                await message.answer(test_text, parse_mode="HTML", reply_markup=keyboard)
+        if test_type == 3:
+            test_text = f"❓ Введите перевод для слова <b>{word_obj.word_et}</b>:"
+            await message.answer(test_text, parse_mode="HTML", reply_markup=ForceReply(selective=True))
+            pending_typing_tests[str(message.chat.id)] = {'word_id': word_obj.id, 'expected': word_obj.translation}
+        mark_word_as_sent(session, str(message.chat.id), word_obj.id)
+        session.commit()
+    except Exception as e:
+        logger.exception("Ошибка в random_test_handler")
+    finally:
         session.close()
-        return
-    if test_type == 1:
-        correct = word_obj.translation
-        options = [correct]
-        others = session.query(Word).filter(
-            Word.part_of_speech == word_obj.part_of_speech,
-            Word.id != word_obj.id
-        ).order_by(func.random()).limit(3).all()
-        if len(others) < 3:
-            test_type = 3
-        else:
-            for w in others:
-                options.append(w.translation)
-            random.shuffle(options)
-            correct_index = options.index(correct)
-            keyboard = InlineKeyboardMarkup(row_width=2)
-            for idx, option in enumerate(options):
-                keyboard.add(InlineKeyboardButton(option, callback_data=f"test_answer:{word_obj.id}:{idx}:{correct_index}"))
-            test_text = f"❓ Как переводится слово <b>{word_obj.word_et}</b>?"
-            await message.answer(test_text, parse_mode="HTML", reply_markup=keyboard)
-    elif test_type == 2:
-        correct = word_obj.word_et
-        options = [correct]
-        others = session.query(Word).filter(
-            Word.part_of_speech == word_obj.part_of_speech,
-            Word.id != word_obj.id
-        ).order_by(func.random()).limit(3).all()
-        if len(others) < 3:
-            test_type = 3
-        else:
-            for w in others:
-                options.append(w.word_et)
-            random.shuffle(options)
-            correct_index = options.index(correct)
-            keyboard = InlineKeyboardMarkup(row_width=2)
-            for idx, option in enumerate(options):
-                keyboard.add(InlineKeyboardButton(option, callback_data=f"test_answer_rev:{word_obj.id}:{idx}:{correct_index}"))
-            test_text = f"❓ Как по‑эстонски будет слово <b>{word_obj.translation}</b>?"
-            await message.answer(test_text, parse_mode="HTML", reply_markup=keyboard)
-    if test_type == 3:
-        test_text = f"❓ Введите перевод для слова <b>{word_obj.word_et}</b>:"
-        await message.answer(test_text, parse_mode="HTML", reply_markup=ForceReply(selective=True))
-        pending_typing_tests[chat_id] = {'word_id': word_obj.id, 'expected': word_obj.translation}
-    mark_word_as_sent(session, chat_id, word_obj.id)
-    session.commit()
-    session.close()
 
 # ОБРАБОТЧИК ДЛЯ /get5words
 async def get_five_words_handler(message: types.Message):
     chat_id = str(message.chat.id)
     await send_five_words(chat_id, message.bot)
 
-# ОБРАБОТЧИК ДЛЯ /settings (КОМАНДА)
+# ОБРАБОТЧИК ДЛЯ КОМАНДЫ /settings (ПРОСМОТР НАСТРОЕК)
 async def settings_handler(message: types.Message):
-    chat_id = str(message.chat.id)
     session = SessionLocal()
-    user = session.query(UserSettings).filter_by(chat_id=chat_id).first()
-    if not user:
-        # Если запись не найдена, создаем её с настройками по умолчанию
-        user = UserSettings(
-            chat_id=chat_id,
-            words_per_hour=5,
-            interval_minutes=60,
-            start_time="09:00",
-            end_time="23:00",
-            test_interval_minutes=90,
-            tests_per_batch=1
+    try:
+        chat_id = str(message.chat.id)
+        user = session.query(UserSettings).filter_by(chat_id=chat_id).first()
+        if not user:
+            # Если запись не найдена, создаем её с настройками по умолчанию
+            user = UserSettings(
+                chat_id=chat_id,
+                words_per_hour=5,
+                interval_minutes=60,
+                start_time="09:00",
+                end_time="23:00",
+                test_interval_minutes=90,
+                tests_per_batch=1
+            )
+            session.add(user)
+            session.commit()
+            logger.info(f"/settings: создан новый пользователь {chat_id} с настройками по умолчанию.")
+        else:
+            logger.info(f"/settings для пользователя {chat_id}: words_per_hour={user.words_per_hour}, interval_minutes={user.interval_minutes}, "
+                        f"start_time={user.start_time}, end_time={user.end_time}, test_interval_minutes={user.test_interval_minutes}, tests_per_batch={user.tests_per_batch}")
+        text = (
+            f"Ваши настройки рассылки:\n"
+            f"Слов в час: <b>{user.words_per_hour}</b>\n"
+            f"Интервал отправки слов: <b>{user.interval_minutes}</b> минут\n"
+            f"Начало рассылки: <b>{user.start_time}</b>\n"
+            f"Окончание рассылки: <b>{user.end_time}</b>\n\n"
+            f"Настройки тестов:\n"
+            f"Интервал отправки тестов: <b>{user.test_interval_minutes}</b> минут\n"
+            f"Количество тестов за раз: <b>{user.tests_per_batch}</b>\n\n"
+            "Чтобы изменить настройки, отправьте сообщение в формате:\n"
+            "<code>/setsettings <слова в час> <интервал слов (мин)> <начало> <окончание> <интервал тестов (мин)> <кол-во тестов></code>\n"
+            "Например: <code>/setsettings 5 60 09:00 23:00 90 1</code>"
         )
-        session.add(user)
-        session.commit()
-        logger.info(f"/settings: создан новый пользователь {chat_id} с настройками по умолчанию.")
-    else:
-        logger.info(f"/settings для пользователя {chat_id}: words_per_hour={user.words_per_hour}, interval_minutes={user.interval_minutes}, "
-                    f"start_time={user.start_time}, end_time={user.end_time}, test_interval_minutes={user.test_interval_minutes}, tests_per_batch={user.tests_per_batch}")
-    text = (
-        f"Ваши настройки рассылки:\n"
-        f"Слов в час: <b>{user.words_per_hour}</b>\n"
-        f"Интервал отправки слов: <b>{user.interval_minutes}</b> минут\n"
-        f"Начало рассылки: <b>{user.start_time}</b>\n"
-        f"Окончание рассылки: <b>{user.end_time}</b>\n\n"
-        f"Настройки тестов:\n"
-        f"Интервал отправки тестов: <b>{user.test_interval_minutes}</b> минут\n"
-        f"Количество тестов за раз: <b>{user.tests_per_batch}</b>\n\n"
-        "Чтобы изменить настройки, отправьте сообщение в формате:\n"
-        "<code>/setsettings <слова в час> <интервал слов (мин)> <начало> <окончание> <интервал тестов (мин)> <кол-во тестов></code>\n"
-        "Например: <code>/setsettings 5 60 09:00 23:00 90 1</code>"
-    )
-    await message.answer(text, parse_mode="HTML")
-    session.close()
+        await message.answer(text, parse_mode="HTML")
+    except Exception as e:
+        logger.exception("Ошибка в settings_handler")
+        await message.answer("Произошла ошибка при получении настроек.", parse_mode="HTML")
+    finally:
+        session.close()
 
-# ОБРАБОТЧИК ДЛЯ /setsettings
+# ОБРАБОТЧИК ДЛЯ КОМАНДЫ /setsettings (ИЗМЕНЕНИЕ НАСТРОЕК)
 async def set_settings_handler(message: types.Message):
+    session = SessionLocal()
     try:
         args = message.get_args().split()
         # Ожидается 6 параметров:
@@ -236,95 +250,111 @@ async def set_settings_handler(message: types.Message):
     except Exception as e:
         logger.exception("Ошибка при разборе аргументов команды /setsettings")
         await message.answer("Неверный формат. Используйте: /setsettings <слова в час> <интервал слов (мин)> <начало> <окончание> <интервал тестов (мин)> <кол-во тестов>", parse_mode="HTML")
+        session.close()
         return
-    chat_id = str(message.chat.id)
-    session = SessionLocal()
-    user = session.query(UserSettings).filter_by(chat_id=chat_id).first()
-    if not user:
-        logger.info(f"/setsettings: для пользователя {chat_id} запись не найдена – создаём новую.")
-        user = UserSettings(
-            chat_id=chat_id,
-            words_per_hour=words_per_hour,
-            interval_minutes=interval_minutes,
-            start_time=start_time,
-            end_time=end_time,
-            test_interval_minutes=test_interval_minutes,
-            tests_per_batch=tests_per_batch
-        )
-        session.add(user)
-    else:
-        logger.info(f"Обновление настроек для пользователя {chat_id}: words_per_hour={words_per_hour}, interval_minutes={interval_minutes}, "
-                    f"start_time={start_time}, end_time={end_time}, test_interval_minutes={test_interval_minutes}, tests_per_batch={tests_per_batch}")
-        user.words_per_hour = words_per_hour
-        user.interval_minutes = interval_minutes
-        user.start_time = start_time
-        user.end_time = end_time
-        user.test_interval_minutes = test_interval_minutes
-        user.tests_per_batch = tests_per_batch
-    session.commit()
-    session.close()
-    await message.answer("Настройки обновлены!", parse_mode="HTML")
+    try:
+        chat_id = str(message.chat.id)
+        user = session.query(UserSettings).filter_by(chat_id=chat_id).first()
+        if not user:
+            logger.info(f"/setsettings: для пользователя {chat_id} запись не найдена – создаём новую.")
+            user = UserSettings(
+                chat_id=chat_id,
+                words_per_hour=words_per_hour,
+                interval_minutes=interval_minutes,
+                start_time=start_time,
+                end_time=end_time,
+                test_interval_minutes=test_interval_minutes,
+                tests_per_batch=tests_per_batch
+            )
+            session.add(user)
+        else:
+            logger.info(f"Обновление настроек для пользователя {chat_id}: words_per_hour={words_per_hour}, interval_minutes={interval_minutes}, "
+                        f"start_time={start_time}, end_time={end_time}, test_interval_minutes={test_interval_minutes}, tests_per_batch={tests_per_batch}")
+            user.words_per_hour = words_per_hour
+            user.interval_minutes = interval_minutes
+            user.start_time = start_time
+            user.end_time = end_time
+            user.test_interval_minutes = test_interval_minutes
+            user.tests_per_batch = tests_per_batch
+        session.commit()
+        await message.answer("Настройки обновлены!", parse_mode="HTML")
+    except Exception as e:
+        logger.exception("Ошибка при обновлении настроек в /setsettings")
+        await message.answer("Произошла ошибка при обновлении настроек.", parse_mode="HTML")
+    finally:
+        session.close()
 
 # ОБРАБОТЧИК ДЛЯ /progress
 async def progress_handler(message: types.Message):
-    chat_id = str(message.chat.id)
     session = SessionLocal()
-    total = session.query(Word).count()
-    user_sent = session.query(UserWordStatus).filter_by(chat_id=chat_id).count()
-    text = f"Прогресс:\nВыучено {user_sent} из {total} слов."
-    await message.answer(text, parse_mode="HTML")
-    session.close()
+    try:
+        chat_id = str(message.chat.id)
+        total = session.query(Word).count()
+        user_sent = session.query(UserWordStatus).filter_by(chat_id=chat_id).count()
+        text = f"Прогресс:\nВыучено {user_sent} из {total} слов."
+        await message.answer(text, parse_mode="HTML")
+    except Exception as e:
+        logger.exception("Ошибка в progress_handler")
+    finally:
+        session.close()
 
 # Функция отправки 5 слов
 async def send_five_words(chat_id: str, bot: Bot):
     session = SessionLocal()
-    sent_word_ids = [uw.word_id for uw in session.query(UserWordStatus).filter_by(chat_id=chat_id).all()]
-    query = session.query(Word)
-    frequent_words = session.query(Word).filter(Word.repeat_more == True).all()
-    selected_words = []
-    for word in frequent_words:
-        user_word = session.query(UserWordStatus).filter_by(chat_id=chat_id, word_id=word.id).first()
-        if user_word is None or (user_word.last_sent and (datetime.now() - user_word.last_sent).total_seconds() > 86400):
-            selected_words.append(word)
-    remaining = 5 - len(selected_words)
-    if remaining > 0:
-        if sent_word_ids:
-            query = query.filter(~Word.id.in_(sent_word_ids))
-        additional_words = query.order_by(func.random()).limit(remaining).all()
-        selected_words.extend(additional_words)
-        if not additional_words:
-            session.query(UserWordStatus).filter_by(chat_id=chat_id).delete()
-            session.commit()
-            additional_words = session.query(Word).order_by(func.random()).limit(remaining).all()
+    try:
+        sent_word_ids = [uw.word_id for uw in session.query(UserWordStatus).filter_by(chat_id=chat_id).all()]
+        query = session.query(Word)
+        frequent_words = session.query(Word).filter(Word.repeat_more == True).all()
+        selected_words = []
+        for word in frequent_words:
+            user_word = session.query(UserWordStatus).filter_by(chat_id=chat_id, word_id=word.id).first()
+            if user_word is None or (user_word.last_sent and (datetime.now() - user_word.last_sent).total_seconds() > 86400):
+                selected_words.append(word)
+        remaining = 5 - len(selected_words)
+        if remaining > 0:
+            if sent_word_ids:
+                query = query.filter(~Word.id.in_(sent_word_ids))
+            additional_words = query.order_by(func.random()).limit(remaining).all()
             selected_words.extend(additional_words)
-    for word in selected_words:
-        text, keyboard = get_word_message(word)
-        await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=keyboard)
-        mark_word_as_sent(session, chat_id, word.id)
-    session.commit()
-    session.close()
+            if not additional_words:
+                session.query(UserWordStatus).filter_by(chat_id=chat_id).delete()
+                session.commit()
+                additional_words = session.query(Word).order_by(func.random()).limit(remaining).all()
+                selected_words.extend(additional_words)
+        for word in selected_words:
+            text, keyboard = get_word_message(word)
+            await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=keyboard)
+            mark_word_as_sent(session, chat_id, word.id)
+        session.commit()
+    except Exception as e:
+        logger.exception("Ошибка в send_five_words")
+    finally:
+        session.close()
 
 # ОБРАБОТЧИК ДЛЯ теста с набором ответа
 async def typing_test_answer_handler(message: types.Message):
-    chat_id = str(message.chat.id)
-    if chat_id not in pending_typing_tests:
-        return
-    expected = pending_typing_tests[chat_id]['expected']
-    word_id = pending_typing_tests[chat_id]['word_id']
-    user_answer = message.text.strip().lower()
-    if user_answer == expected.lower():
-        response = "✅ Верно!"
-    else:
-        response = f"❌ Неверно. Правильный ответ: {expected}"
-    keyboard = InlineKeyboardMarkup(row_width=2)
-    keyboard.add(
-        InlineKeyboardButton("Следующий тест", callback_data="random_test"),
-        InlineKeyboardButton("Меню", callback_data="menu")
-    )
-    await message.answer(response, parse_mode="HTML", reply_markup=keyboard)
-    del pending_typing_tests[chat_id]
+    try:
+        chat_id = str(message.chat.id)
+        if chat_id not in pending_typing_tests:
+            return
+        expected = pending_typing_tests[chat_id]['expected']
+        word_id = pending_typing_tests[chat_id]['word_id']
+        user_answer = message.text.strip().lower()
+        if user_answer == expected.lower():
+            response = "✅ Верно!"
+        else:
+            response = f"❌ Неверно. Правильный ответ: {expected}"
+        keyboard = InlineKeyboardMarkup(row_width=2)
+        keyboard.add(
+            InlineKeyboardButton("Следующий тест", callback_data="random_test"),
+            InlineKeyboardButton("Меню", callback_data="menu")
+        )
+        await message.answer(response, parse_mode="HTML", reply_markup=keyboard)
+        del pending_typing_tests[chat_id]
+    except Exception as e:
+        logger.exception("Ошибка в typing_test_answer_handler")
 
-# Inline-обработчики (кнопки)
+# Inline-обработчики
 async def help_inline_handler(callback_query: types.CallbackQuery):
     help_text = (
         "Список команд:\n"
@@ -345,41 +375,44 @@ async def help_inline_handler(callback_query: types.CallbackQuery):
     await callback_query.answer()
 
 async def settings_inline_handler(callback_query: types.CallbackQuery):
-    # Этот обработчик вызывается при нажатии кнопки «Настройки»
-    # Он просто вызывает settings_handler (чтобы показать актуальные настройки)
-    # и гарантирует, что пользователь видит текущие настройки.
-    chat_id = str(callback_query.message.chat.id)
-    session = SessionLocal()
-    user = session.query(UserSettings).filter_by(chat_id=chat_id).first()
-    if not user:
-        user = UserSettings(
-            chat_id=chat_id,
-            words_per_hour=5,
-            interval_minutes=60,
-            start_time="09:00",
-            end_time="23:00",
-            test_interval_minutes=90,
-            tests_per_batch=1
+    try:
+        # Этот обработчик вызывается при нажатии кнопки «Настройки»
+        chat_id = str(callback_query.message.chat.id)
+        session = SessionLocal()
+        user = session.query(UserSettings).filter_by(chat_id=chat_id).first()
+        if not user:
+            user = UserSettings(
+                chat_id=chat_id,
+                words_per_hour=5,
+                interval_minutes=60,
+                start_time="09:00",
+                end_time="23:00",
+                test_interval_minutes=90,
+                tests_per_batch=1
+            )
+            session.add(user)
+            session.commit()
+            logger.info(f"В settings_inline_handler: создан новый пользователь {chat_id} с настройками по умолчанию.")
+        text = (
+            f"Ваши настройки рассылки:\n"
+            f"Слов в час: <b>{user.words_per_hour}</b>\n"
+            f"Интервал отправки слов: <b>{user.interval_minutes}</b> минут\n"
+            f"Начало рассылки: <b>{user.start_time}</b>\n"
+            f"Окончание рассылки: <b>{user.end_time}</b>\n\n"
+            f"Настройки тестов:\n"
+            f"Интервал отправки тестов: <b>{user.test_interval_minutes}</b> минут\n"
+            f"Количество тестов за раз: <b>{user.tests_per_batch}</b>\n\n"
+            "Чтобы изменить настройки, отправьте сообщение в формате:\n"
+            "<code>/setsettings <слова в час> <интервал слов (мин)> <начало> <окончание> <интервал тестов (мин)> <кол-во тестов></code>\n"
+            "Например: <code>/setsettings 5 60 09:00 23:00 90 1</code>"
         )
-        session.add(user)
-        session.commit()
-        logger.info(f"В settings_inline_handler: создан новый пользователь {chat_id} с настройками по умолчанию.")
-    text = (
-        f"Ваши настройки рассылки:\n"
-        f"Слов в час: <b>{user.words_per_hour}</b>\n"
-        f"Интервал отправки слов: <b>{user.interval_minutes}</b> минут\n"
-        f"Начало рассылки: <b>{user.start_time}</b>\n"
-        f"Окончание рассылки: <b>{user.end_time}</b>\n\n"
-        f"Настройки тестов:\n"
-        f"Интервал отправки тестов: <b>{user.test_interval_minutes}</b> минут\n"
-        f"Количество тестов за раз: <b>{user.tests_per_batch}</b>\n\n"
-        "Чтобы изменить настройки, отправьте сообщение в формате:\n"
-        "<code>/setsettings <слова в час> <интервал слов (мин)> <начало> <окончание> <интервал тестов (мин)> <кол-во тестов></code>\n"
-        "Например: <code>/setsettings 5 60 09:00 23:00 90 1</code>"
-    )
-    await callback_query.message.edit_text(text, parse_mode="HTML")
-    session.close()
-    await callback_query.answer()
+        await callback_query.message.edit_text(text, parse_mode="HTML")
+    except Exception as e:
+        logger.exception("Ошибка в settings_inline_handler")
+        await callback_query.message.edit_text("Ошибка при получении настроек.", parse_mode="HTML")
+    finally:
+        session.close()
+        await callback_query.answer()
 
 async def menu_inline_handler(callback_query: types.CallbackQuery):
     text = (
@@ -418,13 +451,17 @@ async def inline_button_handler(callback_query: types.CallbackQuery):
             await callback_query.answer("Некорректные данные!")
             return
         session = SessionLocal()
-        word_obj = session.query(Word).filter_by(id=int(word_id)).first()
-        if word_obj:
-            word_obj.repeat_more = not word_obj.repeat_more
-            session.commit()
-            status = "помечено" if word_obj.repeat_more else "убрано из повторяющихся"
-            await bot.send_message(chat_id, f"Слово {word_obj.word_et} теперь {status}.", parse_mode="HTML")
-        session.close()
+        try:
+            word_obj = session.query(Word).filter_by(id=int(word_id)).first()
+            if word_obj:
+                word_obj.repeat_more = not word_obj.repeat_more
+                session.commit()
+                status = "помечено" if word_obj.repeat_more else "убрано из повторяющихся"
+                await bot.send_message(chat_id, f"Слово {word_obj.word_et} теперь {status}.", parse_mode="HTML")
+        except Exception as e:
+            logger.exception("Ошибка в inline_button_handler (toggle_repeat)")
+        finally:
+            session.close()
         await callback_query.answer()
         return
     if data.startswith("test_answer:"):
@@ -437,9 +474,14 @@ async def inline_button_handler(callback_query: types.CallbackQuery):
             response = "✅ Верно!"
         else:
             session = SessionLocal()
-            word_obj = session.query(Word).filter_by(id=int(word_id)).first()
-            response = f"❌ Неверно. Правильный ответ: {word_obj.translation if word_obj else 'Неизвестно'}"
-            session.close()
+            try:
+                word_obj = session.query(Word).filter_by(id=int(word_id)).first()
+                response = f"❌ Неверно. Правильный ответ: {word_obj.translation if word_obj else 'Неизвестно'}"
+            except Exception as e:
+                logger.exception("Ошибка в inline_button_handler (test_answer)")
+                response = "Ошибка"
+            finally:
+                session.close()
         keyboard = InlineKeyboardMarkup(row_width=2)
         keyboard.add(
             InlineKeyboardButton("Следующий тест", callback_data="random_test"),
@@ -455,8 +497,13 @@ async def inline_button_handler(callback_query: types.CallbackQuery):
             return
         _, word_id, selected_index, correct_index = parts
         session = SessionLocal()
-        word_obj = session.query(Word).filter_by(id=int(word_id)).first()
-        session.close()
+        try:
+            word_obj = session.query(Word).filter_by(id=int(word_id)).first()
+        except Exception as e:
+            logger.exception("Ошибка в inline_button_handler (test_answer_rev)")
+            word_obj = None
+        finally:
+            session.close()
         if selected_index == correct_index:
             response = "✅ Верно!"
         else:
@@ -471,57 +518,59 @@ async def inline_button_handler(callback_query: types.CallbackQuery):
         return
     if data == "random_test":
         session = SessionLocal()
-        test_type = random.choices([1, 2, 3], weights=[40, 40, 20])[0]
-        word_obj = session.query(Word).order_by(func.random()).first()
-        if not word_obj:
-            await bot.send_message(chat_id, "База слов пуста!", parse_mode="HTML")
+        try:
+            test_type = random.choices([1, 2, 3], weights=[40, 40, 20])[0]
+            word_obj = session.query(Word).order_by(func.random()).first()
+            if not word_obj:
+                await bot.send_message(chat_id, "База слов пуста!", parse_mode="HTML")
+                return
+            if test_type == 1:
+                correct = word_obj.translation
+                options = [correct]
+                others = session.query(Word).filter(
+                    Word.part_of_speech == word_obj.part_of_speech,
+                    Word.id != word_obj.id
+                ).order_by(func.random()).limit(3).all()
+                if len(others) < 3:
+                    test_type = 3
+                else:
+                    for w in others:
+                        options.append(w.translation)
+                    random.shuffle(options)
+                    correct_index = options.index(correct)
+                    keyboard = InlineKeyboardMarkup(row_width=2)
+                    for idx, option in enumerate(options):
+                        keyboard.add(InlineKeyboardButton(option, callback_data=f"test_answer:{word_obj.id}:{idx}:{correct_index}"))
+                    test_text = f"❓ Как переводится слово <b>{word_obj.word_et}</b>?"
+                    await bot.send_message(chat_id, test_text, parse_mode="HTML", reply_markup=keyboard)
+            elif test_type == 2:
+                correct = word_obj.word_et
+                options = [correct]
+                others = session.query(Word).filter(
+                    Word.part_of_speech == word_obj.part_of_speech,
+                    Word.id != word_obj.id
+                ).order_by(func.random()).limit(3).all()
+                if len(others) < 3:
+                    test_type = 3
+                else:
+                    for w in others:
+                        options.append(w.word_et)
+                    random.shuffle(options)
+                    correct_index = options.index(correct)
+                    keyboard = InlineKeyboardMarkup(row_width=2)
+                    for idx, option in enumerate(options):
+                        keyboard.add(InlineKeyboardButton(option, callback_data=f"test_answer_rev:{word_obj.id}:{idx}:{correct_index}"))
+                    test_text = f"❓ Как по‑эстонски будет слово <b>{word_obj.translation}</b>?"
+                    await bot.send_message(chat_id, test_text, parse_mode="HTML", reply_markup=keyboard)
+            if test_type == 3:
+                test_text = f"❓ Введите перевод для слова <b>{word_obj.word_et}</b>:"
+                await bot.send_message(chat_id, test_text, parse_mode="HTML", reply_markup=ForceReply(selective=True))
+                pending_typing_tests[chat_id] = {'word_id': word_obj.id, 'expected': word_obj.translation}
+            session.commit()
+        except Exception as e:
+            logger.exception("Ошибка в inline_button_handler при отправке random_test")
+        finally:
             session.close()
-            await callback_query.answer()
-            return
-        if test_type == 1:
-            correct = word_obj.translation
-            options = [correct]
-            others = session.query(Word).filter(
-                Word.part_of_speech == word_obj.part_of_speech,
-                Word.id != word_obj.id
-            ).order_by(func.random()).limit(3).all()
-            if len(others) < 3:
-                test_type = 3
-            else:
-                for w in others:
-                    options.append(w.translation)
-                random.shuffle(options)
-                correct_index = options.index(correct)
-                keyboard = InlineKeyboardMarkup(row_width=2)
-                for idx, option in enumerate(options):
-                    keyboard.add(InlineKeyboardButton(option, callback_data=f"test_answer:{word_obj.id}:{idx}:{correct_index}"))
-                test_text = f"❓ Как переводится слово <b>{word_obj.word_et}</b>?"
-                await bot.send_message(chat_id, test_text, parse_mode="HTML", reply_markup=keyboard)
-        elif test_type == 2:
-            correct = word_obj.word_et
-            options = [correct]
-            others = session.query(Word).filter(
-                Word.part_of_speech == word_obj.part_of_speech,
-                Word.id != word_obj.id
-            ).order_by(func.random()).limit(3).all()
-            if len(others) < 3:
-                test_type = 3
-            else:
-                for w in others:
-                    options.append(w.word_et)
-                random.shuffle(options)
-                correct_index = options.index(correct)
-                keyboard = InlineKeyboardMarkup(row_width=2)
-                for idx, option in enumerate(options):
-                    keyboard.add(InlineKeyboardButton(option, callback_data=f"test_answer_rev:{word_obj.id}:{idx}:{correct_index}"))
-                test_text = f"❓ Как по‑эстонски будет слово <b>{word_obj.translation}</b>?"
-                await bot.send_message(chat_id, test_text, parse_mode="HTML", reply_markup=keyboard)
-        if test_type == 3:
-            test_text = f"❓ Введите перевод для слова <b>{word_obj.word_et}</b>:"
-            await bot.send_message(chat_id, test_text, parse_mode="HTML", reply_markup=ForceReply(selective=True))
-            pending_typing_tests[chat_id] = {'word_id': word_obj.id, 'expected': word_obj.translation}
-        session.commit()
-        session.close()
         await callback_query.answer("Тест отправлен!")
         return
     if data == "startmailing":
@@ -530,49 +579,60 @@ async def inline_button_handler(callback_query: types.CallbackQuery):
         return
     if data == "random_word":
         session = SessionLocal()
-        word_obj = session.query(Word).order_by(func.random()).first()
-        if word_obj:
-            text, keyboard = get_word_message(word_obj)
-            await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=keyboard)
-            mark_word_as_sent(session, chat_id, word_obj.id)
-        session.commit()
-        session.close()
+        try:
+            word_obj = session.query(Word).order_by(func.random()).first()
+            if word_obj:
+                text, keyboard = get_word_message(word_obj)
+                await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=keyboard)
+                mark_word_as_sent(session, chat_id, word_obj.id)
+            session.commit()
+        except Exception as e:
+            logger.exception("Ошибка в inline_button_handler для random_word")
+        finally:
+            session.close()
         await callback_query.answer("Случайное слово!")
         return
     if data == "progress":
         session = SessionLocal()
-        total = session.query(Word).count()
-        user_sent = session.query(UserWordStatus).filter_by(chat_id=chat_id).count()
-        text = f"Прогресс:\nВыучено {user_sent} из {total} слов."
-        await bot.send_message(chat_id, text, parse_mode="HTML")
-        session.close()
+        try:
+            total = session.query(Word).count()
+            user_sent = session.query(UserWordStatus).filter_by(chat_id=chat_id).count()
+            text = f"Прогресс:\nВыучено {user_sent} из {total} слов."
+            await bot.send_message(chat_id, text, parse_mode="HTML")
+        except Exception as e:
+            logger.exception("Ошибка в inline_button_handler для progress")
+        finally:
+            session.close()
         await callback_query.answer()
         return
     await callback_query.answer()
 
 # ОБРАБОТЧИК ДЛЯ ответов в тесте с набором текста
 async def typing_test_answer_handler(message: types.Message):
-    chat_id = str(message.chat.id)
-    if chat_id not in pending_typing_tests:
-        return
-    expected = pending_typing_tests[chat_id]['expected']
-    word_id = pending_typing_tests[chat_id]['word_id']
-    user_answer = message.text.strip().lower()
-    if user_answer == expected.lower():
-        response = "✅ Верно!"
-    else:
-        response = f"❌ Неверно. Правильный ответ: {expected}"
-    keyboard = InlineKeyboardMarkup(row_width=2)
-    keyboard.add(
-        InlineKeyboardButton("Следующий тест", callback_data="random_test"),
-        InlineKeyboardButton("Меню", callback_data="menu")
-    )
-    await message.answer(response, parse_mode="HTML", reply_markup=keyboard)
-    del pending_typing_tests[chat_id]
+    try:
+        chat_id = str(message.chat.id)
+        if chat_id not in pending_typing_tests:
+            return
+        expected = pending_typing_tests[chat_id]['expected']
+        word_id = pending_typing_tests[chat_id]['word_id']
+        user_answer = message.text.strip().lower()
+        if user_answer == expected.lower():
+            response = "✅ Верно!"
+        else:
+            response = f"❌ Неверно. Правильный ответ: {expected}"
+        keyboard = InlineKeyboardMarkup(row_width=2)
+        keyboard.add(
+            InlineKeyboardButton("Следующий тест", callback_data="random_test"),
+            InlineKeyboardButton("Меню", callback_data="menu")
+        )
+        await message.answer(response, parse_mode="HTML", reply_markup=keyboard)
+        del pending_typing_tests[chat_id]
+    except Exception as e:
+        logger.exception("Ошибка в typing_test_answer_handler")
 
 # Регистрация обработчиков
 def register_handlers(dp: Dispatcher):
-    # Регистрируем обработчик для команды /settings первым, чтобы он точно срабатывал
+    # Регистрируем обработчики команды /settings и /setsettings первыми
     dp.register_message_handler(settings_handler, commands=["settings"])
     dp.register_message_handler(set_settings_handler, commands=["setsettings"])
     dp.register_message_handler(start_handler, commands=["start"])
